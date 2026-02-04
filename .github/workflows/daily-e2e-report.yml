@@ -1,0 +1,38 @@
+name: Daily E2E Failure Report
+
+on:
+  schedule:
+    # Run every day at 8:00 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Time period (e.g., 7d, 24h, 2w)'
+        required: false
+        default: '24h'
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch E2E Failures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x ./fetch-pac-e2e-failures.sh
+          
+          SINCE="${{ github.event.inputs.since || '24h' }}"
+          
+          echo "## 📊 PAC E2E Failure Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Period:** Last $SINCE" >> $GITHUB_STEP_SUMMARY
+          echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Run the script and capture output
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ./fetch-pac-e2e-failures.sh -s "$SINCE" --failed 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
