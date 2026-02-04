@@ -20,7 +20,7 @@ jobs:
 
       - name: Fetch E2E Failures
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAC_TOKEN }}
         run: |
           chmod +x ./fetch-pac-e2e-failures.sh
           
