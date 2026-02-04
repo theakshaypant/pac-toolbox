@@ -26,6 +26,7 @@ Options:
     -l, --limit N         Max results (default: 100)
     -a, --all             Show all workflows, not just E2E
     -f, --failed          Show failed jobs for each workflow run
+    -c, --context         Include failure context (10 lines before each test failure)
     -h, --help            Show this help
 
 Duration formats for --since:
@@ -43,6 +44,7 @@ EOF
 
 SHOW_ALL=false
 SHOW_FAILED=false
+SHOW_CONTEXT=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -53,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         -l|--limit)    LIMIT="$2"; shift 2 ;;
         -a|--all)      SHOW_ALL=true; shift ;;
         -f|--failed)   SHOW_FAILED=true; shift ;;
+        -c|--context)  SHOW_CONTEXT=true; shift ;;
         -h|--help)     usage ;;
         *)             echo "Unknown option: $1"; usage ;;
     esac
@@ -115,9 +118,10 @@ if [[ "$SHOW_FAILED" == true ]]; then
     echo "Found $RUN_COUNT failed run(s). Fetching job details..."
     echo ""
     
-    # Temp file to collect all failed test names
+    # Temp files to collect data
     FAILED_TESTS_FILE=$(mktemp)
-    trap "rm -f $FAILED_TESTS_FILE" EXIT
+    FAILURE_CONTEXT_FILE=$(mktemp)
+    trap "rm -f $FAILED_TESTS_FILE $FAILURE_CONTEXT_FILE" EXIT
     
     # Iterate through each failed run and get failed jobs
     echo "$RUNS" | jq -r '.[] | "\(.databaseId)|\(.workflowName)|\(.headBranch)|\(.createdAt)|\(.url)"' | \
@@ -175,6 +179,16 @@ if [[ "$SHOW_FAILED" == true ]]; then
                         echo "      ✗ $test_name"
                         echo "$test_name" >> "$FAILED_TESTS_FILE"
                     done
+                    
+                    # Save failure context if requested
+                    if [[ "$SHOW_CONTEXT" == true ]]; then
+                        CONTEXT=$(echo "$LOG_OUTPUT" | grep -B10 -- "--- FAIL.*Test" || true)
+                        if [[ -n "$CONTEXT" ]]; then
+                            echo "=== Run #$run_id: $workflow ===" >> "$FAILURE_CONTEXT_FILE"
+                            echo "$CONTEXT" >> "$FAILURE_CONTEXT_FILE"
+                            echo "" >> "$FAILURE_CONTEXT_FILE"
+                        fi
+                    fi
                 else
                     echo "    (No specific test failures extracted from logs)"
                 fi
@@ -210,6 +224,18 @@ if [[ "$SHOW_FAILED" == true ]]; then
     
     echo ""
     echo "═══════════════════════════════════════════════════════════════════════════════"
+    
+    # Output failure context section if requested and available
+    if [[ "$SHOW_CONTEXT" == true ]] && [[ -s "$FAILURE_CONTEXT_FILE" ]]; then
+        echo ""
+        echo "═══════════════════════════════════════════════════════════════════════════════"
+        echo "  FAILURE CONTEXT (10 lines before each test failure)"
+        echo "═══════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        cat "$FAILURE_CONTEXT_FILE"
+        echo "═══════════════════════════════════════════════════════════════════════════════"
+    fi
+    
     exit 0
 fi
 
