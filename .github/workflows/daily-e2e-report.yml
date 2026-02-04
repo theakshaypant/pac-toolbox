@@ -26,13 +26,13 @@ jobs:
           
           SINCE="${{ github.event.inputs.since || '24h' }}"
           
-          echo "## 📊 PAC E2E Failure Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Period:** Last $SINCE" >> $GITHUB_STEP_SUMMARY
-          echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          # Run the script with full output to logs
+          ./fetch-pac-e2e-failures.sh -s "$SINCE" --failed | tee /tmp/full-output.txt
           
-          # Run the script and capture output
+          # Extract just the summary for GitHub step summary (from SUMMARY to end of file)
+          echo "## 📊 PAC E2E Failure Report" >> $GITHUB_STEP_SUMMARY
+          echo "**Period:** Last $SINCE | **Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          ./fetch-pac-e2e-failures.sh -s "$SINCE" --failed 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+          sed -n '/SUMMARY: Failed Tests Frequency/,$p' /tmp/full-output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

@@ -167,7 +167,7 @@ if [[ "$SHOW_FAILED" == true ]]; then
                 # Extract failed test names from Go test output
                 # Patterns: "--- FAIL: TestName" or "FAIL TestName" or "=== FAIL: TestName"
                 FAILED_TESTS=$(echo "$LOG_OUTPUT" | grep -oE '(--- FAIL: |FAIL\s+|=== FAIL:\s+)(Test[A-Za-z0-9_/]+)' | \
-                    sed -E 's/(--- FAIL: |FAIL\s+|=== FAIL:\s+)//' | sort -u)
+                    sed -E 's/(--- FAIL: |FAIL\s+|=== FAIL:\s+)//' | sort -u || true)
                 
                 if [[ -n "$FAILED_TESTS" ]]; then
                     echo "    Failed tests in this run:"
