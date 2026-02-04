@@ -44,46 +44,50 @@ jobs:
           sed -n '/FAILURE CONTEXT/,$p' /tmp/full-output.txt > /tmp/failure-context.txt || true
 
       - name: Analyze with Gemini
-        if: ${{ secrets.GEMINI_API_KEY != '' }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
+          # Skip if no API key configured
+          if [[ -z "$GEMINI_API_KEY" ]]; then
+            echo "GEMINI_API_KEY not configured, skipping analysis"
+            exit 0
+          fi
+          
           # Check if we have any failure context
           if [[ ! -s /tmp/failure-context.txt ]]; then
             echo "No failure context to analyze"
             exit 0
           fi
           
-          # Prepare the prompt
-          FAILURE_CONTEXT=$(cat /tmp/failure-context.txt | head -c 30000)  # Limit size for API
+          # Prepare the prompt using heredoc to avoid YAML parsing issues
+          FAILURE_CONTEXT=$(cat /tmp/failure-context.txt | head -c 30000)
           
-          PROMPT="You are analyzing E2E test failures from pipelines-as-code, a Tekton-based CI/CD system that integrates with GitHub, GitLab, Gitea, and Bitbucket.
+          PROMPT=$(cat << 'PROMPT_EOF'
+          You are analyzing E2E test failures from pipelines-as-code, a Tekton-based CI/CD system that integrates with GitHub, GitLab, Gitea, and Bitbucket.
 
-IMPORTANT CONTEXT:
-- Test names containing 'Bad', 'Invalid', 'Error', 'Wrong', 'Fail' are NEGATIVE TEST CASES - they intentionally test invalid inputs to verify error handling works correctly.
-- When these tests fail, it means THE TEST ITSELF failed (e.g., timeout, infrastructure issue), NOT that there's a bug in error handling.
-- Focus on WHY the test failed (look at the actual error/timeout), not what the test was testing.
+          IMPORTANT CONTEXT
+          - Test names containing Bad, Invalid, Error, Wrong, Fail are NEGATIVE TEST CASES that intentionally test invalid inputs to verify error handling works correctly.
+          - When these tests fail, it means THE TEST ITSELF failed (e.g., timeout, infrastructure issue), NOT that there is a bug in error handling.
+          - Focus on WHY the test failed (look at the actual error/timeout), not what the test was testing.
 
-The logs show the last 10 lines before each '--- FAIL: TestName' line. Log format: <job_name> <step> <timestamp> <content>
+          The logs show the last 10 lines before each test failure marker. Log format is [job_name] [step] [timestamp] [content]
 
-Analyze these failures and provide:
+          Analyze these failures and provide
 
-## 1. Failure Categories
-Group by the ACTUAL failure reason (not what the test was testing)
+          1. Failure Categories - Group by the ACTUAL failure reason (not what the test was testing)
 
-## 2. Correlation Analysis
-- Which tests share the same underlying failure reason?
-- Are failures concentrated in specific providers (github/gitlab/gitea/bitbucket)?
-- Common error messages or patterns across failures?
+          2. Correlation Analysis - Which tests share the same underlying failure reason? Are failures concentrated in specific providers (github/gitlab/gitea/bitbucket)? Common error messages or patterns?
 
-## 3. Priority Actions
-List 2-3 specific infrastructure or test stability fixes to investigate, ranked by impact.
+          3. Priority Actions - List 2-3 specific infrastructure or test stability fixes to investigate, ranked by impact.
 
-Be concise. Focus on the ROOT CAUSE of test failures, not what functionality the tests were verifying.
+          Be concise. Focus on the ROOT CAUSE of test failures, not what functionality the tests were verifying.
 
-Test failure context:
+          Test failure context below
+          PROMPT_EOF
+          )
+          PROMPT="$PROMPT
 
-$FAILURE_CONTEXT"
+          $FAILURE_CONTEXT"
 
           # Call Gemini API
           RESPONSE=$(curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY" \
