@@ -35,7 +35,7 @@ func GetTicketFromPR(ctx context.Context, prURL string) []string {
 
 	issuesURL := make([]string, len(issues))
 	for idx, issue := range issues {
-		issuesURL[idx] = fmt.Sprintf("https://%s/browse/%s", ctx.Value(JIRA_URL).(string), issue.Key)
+		issuesURL[idx] = fmt.Sprintf("%s/browse/%s", ctx.Value(JIRA_URL).(string), issue.Key)
 	}
 
 	return issuesURL
