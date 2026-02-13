@@ -25,7 +25,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAC_TOKEN }}
         run: |
-          chmod +x ./fetch-pac-e2e-failures.sh
+          chmod +x ./scripts/fetch-pac-e2e-failures.sh
           
           SINCE="${{ github.event.inputs.since || '24h' }}"
           
