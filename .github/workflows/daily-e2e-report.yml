@@ -30,7 +30,7 @@ jobs:
           SINCE="${{ github.event.inputs.since || '24h' }}"
           
           # Run the script with full output to logs (include context for Gemini analysis)
-          ./fetch-pac-e2e-failures.sh -s "$SINCE" --failed --context | tee /tmp/full-output.txt
+          ./scripts/fetch-pac-e2e-failures.sh -s "$SINCE" --failed --context | tee /tmp/full-output.txt
           
           # Extract just the summary for GitHub step summary
           echo "## 📊 PAC E2E Failure Report" >> $GITHUB_STEP_SUMMARY
