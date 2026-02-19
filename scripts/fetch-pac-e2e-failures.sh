@@ -27,6 +27,7 @@ Options:
     -a, --all             Show all workflows, not just E2E
     -f, --failed          Show failed jobs for each workflow run
     -c, --context         Include failure context (10 lines before each test failure)
+    -C, --cancelled       Include cancelled workflow runs
     -h, --help            Show this help
 
 Duration formats for --since:
@@ -38,6 +39,7 @@ Examples:
     $(basename "$0") -s 7d
     $(basename "$0") -s 24h --status failure
     $(basename "$0") -s 2w --failed
+    $(basename "$0") -s 7d -f -C              # Include cancelled runs
 EOF
     exit 0
 }
@@ -45,6 +47,7 @@ EOF
 SHOW_ALL=false
 SHOW_FAILED=false
 SHOW_CONTEXT=false
+INCLUDE_CANCELLED=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -56,6 +59,7 @@ while [[ $# -gt 0 ]]; do
         -a|--all)      SHOW_ALL=true; shift ;;
         -f|--failed)   SHOW_FAILED=true; shift ;;
         -c|--context)  SHOW_CONTEXT=true; shift ;;
+        -C|--cancelled) INCLUDE_CANCELLED=true; shift ;;
         -h|--help)     usage ;;
         *)             echo "Unknown option: $1"; usage ;;
     esac
@@ -96,10 +100,12 @@ if [[ "$SHOW_FAILED" == true ]]; then
     echo "═══════════════════════════════════════════════════════════════════════════════"
     [[ -n "$SINCE" ]] && echo "  Since: $SINCE_ISO"
     [[ -n "$UNTIL" ]] && echo "  Until: $UNTIL_ISO"
+    $INCLUDE_CANCELLED && echo "  Including: cancelled runs"
     echo ""
     
-    # Get failed/completed runs first
-    RUNS=$(gh run list -R "$REPO" -L "$LIMIT" --status failure --json databaseId,workflowName,headBranch,createdAt,url | \
+    # Fetch failed runs
+    FAILED_RUNS=$(gh run list -R "$REPO" -L "$LIMIT" --status failure \
+        --json databaseId,workflowName,headBranch,headSha,createdAt,url,attempt,conclusion | \
         jq -r --arg since "$SINCE_ISO" --arg until "$UNTIL_ISO" --argjson all "$SHOW_ALL" --arg filter "$WORKFLOW_FILTER" '
             [.[] | select(
                 ($since == "" or .createdAt >= $since) and
@@ -107,6 +113,24 @@ if [[ "$SHOW_FAILED" == true ]]; then
                 ($all or (.workflowName | ascii_downcase | contains($filter)))
             )]
         ')
+    
+    # Fetch cancelled runs if requested
+    if [[ "$INCLUDE_CANCELLED" == true ]]; then
+        CANCELLED_RUNS=$(gh run list -R "$REPO" -L "$LIMIT" --status cancelled \
+            --json databaseId,workflowName,headBranch,headSha,createdAt,url,attempt,conclusion | \
+            jq -r --arg since "$SINCE_ISO" --arg until "$UNTIL_ISO" --argjson all "$SHOW_ALL" --arg filter "$WORKFLOW_FILTER" '
+                [.[] | select(
+                    ($since == "" or .createdAt >= $since) and
+                    ($until == "" or .createdAt <= $until) and
+                    ($all or (.workflowName | ascii_downcase | contains($filter)))
+                )]
+            ')
+        # Merge failed and cancelled runs
+        RUNS=$(echo "$FAILED_RUNS" "$CANCELLED_RUNS" | jq -s 'add | sort_by(.createdAt) | reverse')
+    else
+        RUNS="$FAILED_RUNS"
+    fi
+    
     
     RUN_COUNT=$(echo "$RUNS" | jq 'length')
     
@@ -124,11 +148,20 @@ if [[ "$SHOW_FAILED" == true ]]; then
     trap "rm -f $FAILED_TESTS_FILE $FAILURE_CONTEXT_FILE" EXIT
     
     # Iterate through each failed run and get failed jobs
-    echo "$RUNS" | jq -r '.[] | "\(.databaseId)|\(.workflowName)|\(.headBranch)|\(.createdAt)|\(.url)"' | \
-    while IFS='|' read -r run_id workflow branch created url; do
+    echo "$RUNS" | jq -r '.[] | "\(.databaseId)|\(.workflowName)|\(.headBranch)|\(.createdAt)|\(.url)|\(.attempt // 1)|\(.conclusion // "failure")|\(.headSha // "")"' | \
+    while IFS='|' read -r run_id workflow branch created url attempt conclusion sha; do
         echo "───────────────────────────────────────────────────────────────────────────────"
-        echo "▶ Run #$run_id: $workflow"
-        echo "  Branch: $branch | Created: ${created:0:16}"
+        
+        # Build status indicator
+        STATUS_ICON="✗"
+        [[ "$conclusion" == "cancelled" ]] && STATUS_ICON="⊘"
+        
+        ATTEMPT_INFO=""
+        [[ "$attempt" -gt 1 ]] && ATTEMPT_INFO=" (attempt #$attempt)"
+        
+        echo "▶ Run #$run_id: $workflow$ATTEMPT_INFO"
+        echo "  Branch: $branch | Created: ${created:0:16} | Status: $STATUS_ICON $conclusion"
+        [[ -n "$sha" ]] && echo "  Commit: ${sha:0:8}"
         echo "  URL: $url"
         echo ""
         
@@ -255,10 +288,10 @@ echo "════════════════════════�
 $SHOW_ALL && echo "  Showing: ALL workflows" || echo "  Showing: E2E workflows only"
 echo ""
 
-$CMD --json databaseId,workflowName,headBranch,status,conclusion,createdAt,event | \
+$CMD --json databaseId,workflowName,headBranch,status,conclusion,createdAt,event,attempt | \
 jq -r --arg since "$SINCE_ISO" --arg until "$UNTIL_ISO" --argjson all "$SHOW_ALL" --arg filter "$WORKFLOW_FILTER" '
-    ["RUN_ID", "WORKFLOW", "BRANCH", "EVENT", "STATUS", "RESULT", "CREATED"],
-    ["-------", "--------", "------", "-----", "------", "------", "-------"],
+    ["RUN_ID", "WORKFLOW", "BRANCH", "EVENT", "STATUS", "RESULT", "ATTEMPT", "CREATED"],
+    ["-------", "--------", "------", "-----", "------", "------", "-------", "-------"],
     (.[] | select(
         ($since == "" or .createdAt >= $since) and
         ($until == "" or .createdAt <= $until) and
@@ -270,6 +303,7 @@ jq -r --arg since "$SINCE_ISO" --arg until "$UNTIL_ISO" --argjson all "$SHOW_ALL
         .event[0:12],
         .status,
         (.conclusion // "—"),
+        ("#" + ((.attempt // 1) | tostring)),
         .createdAt[0:16]
     ]) | @tsv
 ' | column -t -s $'\t'
