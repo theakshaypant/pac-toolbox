@@ -105,10 +105,10 @@ def emit(writer, event_meta, event_calls):
         if not calls:
             continue
         meta = event_meta[eid]
-        url_counts = Counter(c['url_path'] for c in calls)
+        url_op_counts = Counter((c['url_path'], c['operation']) for c in calls)
         total = len(calls)
         for i, call in enumerate(calls, 1):
-            url_cnt = url_counts[call['url_path']]
+            url_cnt = url_op_counts[(call['url_path'], call['operation'])]
             writer.writerow({**meta, **call,
                              'total_calls_in_event': total,
                              'call_index': i,
